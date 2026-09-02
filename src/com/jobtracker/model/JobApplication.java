@@ -80,6 +80,20 @@ public String getAppliedDate(){
     return appliedDate;
 }
 
+@Override
+
+public String toString(){
+
+    return "ID : " + id +
+    "\nCompany : " + companyName +
+    "\nRole : " + jobRole +
+    "\nSalary : " + salary +
+    "\nLocation : " + location +
+    "\nStatus : " + status +
+    "\nappliedDate : " + appliedDate;
+
+}
+
 }
 
 
