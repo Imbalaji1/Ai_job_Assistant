@@ -109,7 +109,7 @@ public class Main {
             if(location.trim().isEmpty()){
                 System.out.println("Location can't be empty");
             }else if(!location.matches("[a-zA-Z]+")){
-                System.out.println("Loaction must contain only letters.");
+                System.out.println("Location must contain only letters.");
             }else{
                 break;
             }
@@ -137,6 +137,8 @@ public class Main {
                     System.out.println("Valid statuses : Applied, Interview, Selected, Rejected, Withdrawn");
                 }
             }
+
+        // Date 
 
         String appliedDate;
 
@@ -173,6 +175,17 @@ public class Main {
         }
 
         if(choice == 3){   // Search
+            System.out.println("\n===== SEARCH / FILTER APPLICATIONS =====");
+            System.out.println("1. Search by ID");
+            System.out.println("2. Search by Company Name");
+            System.out.println("3. Count Applications by Status");
+            System.out.println("4. Back");
+
+            System.out.print("Enter your choice: ");
+            int searchChoice = scanner.nextInt();
+            scanner.nextLine();
+
+        if(searchChoice == 1){
 
             int id;
             
@@ -201,10 +214,36 @@ public class Main {
             }else{
                 System.out.println("Application not found : ");
             }
-        }
+        }else if(searchChoice == 2){
+            System.out.print("Enter company name : " );
+            String companyName = scanner.nextLine().trim();
 
-        if(choice == 4){
-            int id;
+            service.searchByCompany(companyName);
+        }else if(searchChoice == 3){
+
+        System.out.println("\n===== APPLICATION COUNT =====");
+        System.out.println("Applied   : " + service.countByStatus("Applied"));
+        System.out.println("Interview : " + service.countByStatus("Interview"));
+        System.out.println("Selected  : " + service.countByStatus("Selected"));
+        System.out.println("Rejected  : " + service.countByStatus("Rejected"));
+        System.out.println("Withdrawn : " + service.countByStatus("Withdrawn"));
+        System.out.println("Total     : " + service.countApplications()); 
+            
+    
+            }else if(searchChoice == 4){
+                 // Back to main menu
+            } else{
+            System.out.println("Invalid search choice.");
+        }
+    }
+
+            if(choice == 4){
+
+            if(!service.hasApplications()){
+                System.out.println("No Application found");
+            }else{
+
+                int id;
 
         while (true) {
             System.out.print("Enter Application ID : ");
@@ -223,18 +262,34 @@ public class Main {
             System.out.println("Please enter a valid Application ID.");
     }
 }
+            String newStatus;
 
-            System.out.print("Enter new status : ");
-            String newStatus = scanner.nextLine();
+            while(true){
+                System.out.print("Enter new Status : ");
+                newStatus = scanner.nextLine().trim();
 
+                if(newStatus.equalsIgnoreCase("Applied")||
+                    newStatus.equalsIgnoreCase("Interview")||
+                newStatus.equalsIgnoreCase("Selected")||
+                newStatus.equalsIgnoreCase("Rejected")||
+                newStatus.equalsIgnoreCase("Withdrawn")){
+                    break;
+                }else{
+                    System.out.println("Invalid status. ");
+                    System.out.println("Valid statuses : Applied , Interview, Selected, Rejected, Withdrawn");
+                }
+            }
+            
             boolean update = service.updateStatus(id,newStatus);
 
             if(update){
-                System.out.println("Status upadted successfully. ");
+                System.out.println("Status update successfully.");
             }else{
-                System.out.println("Application not found. ");
+                System.out.println("Application not found.");
             }
         }
+    }
+            
 
         if(choice == 5){
             int id;
@@ -256,20 +311,35 @@ public class Main {
                 }
             }
 
-            boolean deleted = service.deleteApplication(id);
+            System.out.println("Are you sure you want to delete this application ? (yes / no): ");
+            String confirmation = scanner.nextLine().trim();
 
-            if(deleted){
-                System.out.println("Application deleted succesfully.");
-            }else{
-                System.out.println("Application not found.");
-            }
+            if(confirmation.equalsIgnoreCase("yes")){
+
+                boolean deleted = service.deleteApplication(id);
+
+                if(deleted){
+                    System.out.println("Application deleted successfully.");
+                }else{
+                    System.out.println("Application not found");
+                }
+
+            } else if(confirmation.equalsIgnoreCase("no")){
+
+                    System.out.println("Deletion cancelled.");
+
+                }else{
+                    System.out.println("Please enter yes or no.");
+                }
         }
+        
 
-        if (choice == 6) {   //Exit
-            System.out.println("Exiting...");
-            scanner.close(); 
-            return;
+             if (choice == 6) {   //Exit
+                System.out.println("Exiting...");
+                scanner.close(); 
+                return;
             }
         }
     }
 }
+

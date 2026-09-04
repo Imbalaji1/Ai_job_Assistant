@@ -1,7 +1,7 @@
 package com.jobtracker.model;
 
 public class JobApplication {
-    private int id;
+    private final int id;
     private String companyName;
     private String jobRole;
     private double salary;
@@ -12,6 +12,7 @@ public class JobApplication {
 // Constructor
 
 public JobApplication(int id, String companyName, String jobRole, double salary, String location, String status, String appliedDate){
+
     this.id = id;
     this.companyName = companyName;
     this.jobRole = jobRole;
@@ -24,9 +25,6 @@ public JobApplication(int id, String companyName, String jobRole, double salary,
 
 // Getters and Setters 
 
-public void setId(int id){
-    this.id = id;
-}
 
 public int getId(){
     return id;
@@ -90,7 +88,7 @@ public String toString(){
     "\nSalary : " + salary +
     "\nLocation : " + location +
     "\nStatus : " + status +
-    "\nappliedDate : " + appliedDate;
+    "\nApplied Date : " + appliedDate;
 
 }
 
