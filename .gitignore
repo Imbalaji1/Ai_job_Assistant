@@ -1,2 +1,9 @@
-out/ 
-* .class 
+target/
+out/
+*.class
+.env
+.idea/
+.vscode/
+.classpath
+.project
+.settings/
