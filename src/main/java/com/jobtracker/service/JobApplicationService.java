@@ -1,6 +1,7 @@
 package com.jobtracker.service;
 
 import com.jobtracker.dto.ApplicationStatusHistoryResponse;
+import com.jobtracker.dto.InterviewDateUpdateRequest;
 import com.jobtracker.dto.JobApplicationRequest;
 import com.jobtracker.dto.JobApplicationResponse;
 import com.jobtracker.entity.ApplicationStatusHistory;
@@ -9,6 +10,7 @@ import com.jobtracker.enums.ApplicationStatus;
 import com.jobtracker.exception.ApplicationNotFoundException;
 import com.jobtracker.repository.ApplicationStatusHistoryRepository;
 import com.jobtracker.repository.JobApplicationRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -29,20 +31,32 @@ public class JobApplicationService {
 
     private final JobApplicationRepository jobApplicationRepository;
     private final ApplicationStatusHistoryRepository historyRepository;
+    private final ActivityHistoryService activityHistoryService;
+
+    @Autowired
+    public JobApplicationService(JobApplicationRepository jobApplicationRepository,
+                                 ApplicationStatusHistoryRepository historyRepository,
+                                 ActivityHistoryService activityHistoryService) {
+        this.jobApplicationRepository = jobApplicationRepository;
+        this.historyRepository = historyRepository;
+        this.activityHistoryService = activityHistoryService;
+    }
 
     public JobApplicationService(JobApplicationRepository jobApplicationRepository,
                                  ApplicationStatusHistoryRepository historyRepository) {
-        this.jobApplicationRepository = jobApplicationRepository;
-        this.historyRepository = historyRepository;
+        this(jobApplicationRepository, historyRepository, null);
     }
 
     @Transactional
     public JobApplicationResponse create(JobApplicationRequest request) {
         JobApplication application = new JobApplication(
                 request.companyName().trim(), request.jobRole().trim(), request.salaryLpa(),
-                request.location().trim(), request.status(), request.appliedDate());
+                request.location().trim(), request.status(), request.appliedDate(),
+                request.interviewDate());
         JobApplication saved = jobApplicationRepository.save(application);
         historyRepository.save(new ApplicationStatusHistory(saved, null, saved.getStatus()));
+        recordApplicationActivity("APPLICATION_CREATED", "Created application for "
+                + saved.getCompanyName() + " — " + saved.getJobRole(), saved.getId());
         return toResponse(saved);
     }
 
@@ -89,6 +103,7 @@ public class JobApplicationService {
         application.setSalaryLpa(request.salaryLpa());
         application.setLocation(request.location().trim());
         application.setAppliedDate(request.appliedDate());
+        application.setInterviewDate(request.interviewDate());
         application.setStatus(request.status());
 
         JobApplication saved = jobApplicationRepository.saveAndFlush(application);
@@ -104,6 +119,14 @@ public class JobApplicationService {
         JobApplication saved = jobApplicationRepository.saveAndFlush(application);
         saveStatusChange(saved, previousStatus, saved.getStatus());
         return toResponse(saved);
+    }
+
+    @Transactional
+    public JobApplicationResponse updateInterviewDate(Long id,
+                                                       InterviewDateUpdateRequest request) {
+        JobApplication application = getApplication(id);
+        application.setInterviewDate(request.interviewDate());
+        return toResponse(jobApplicationRepository.saveAndFlush(application));
     }
 
     public List<ApplicationStatusHistoryResponse> getStatusHistory(Long id) {
@@ -122,6 +145,8 @@ public class JobApplicationService {
         JobApplication application = getApplication(id);
         historyRepository.deleteAllByJobApplicationId(id);
         jobApplicationRepository.delete(application);
+        recordApplicationActivity("APPLICATION_DELETED", "Deleted application for "
+                + application.getCompanyName() + " — " + application.getJobRole(), id);
     }
 
     private void saveStatusChange(JobApplication application,
@@ -149,6 +174,13 @@ public class JobApplicationService {
         return new JobApplicationResponse(
                 application.getId(), application.getCompanyName(), application.getJobRole(),
                 application.getSalaryLpa(), application.getLocation(), application.getStatus(),
-                application.getAppliedDate(), application.getCreatedAt(), application.getUpdatedAt());
+                application.getAppliedDate(), application.getInterviewDate(),
+                application.getCreatedAt(), application.getUpdatedAt());
+    }
+
+    private void recordApplicationActivity(String eventType, String summary, Long id) {
+        if (activityHistoryService != null) {
+            activityHistoryService.record(eventType, summary, "APPLICATION", id);
+        }
     }
 }

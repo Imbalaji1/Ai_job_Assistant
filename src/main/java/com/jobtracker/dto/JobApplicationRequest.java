@@ -16,5 +16,12 @@ public record JobApplicationRequest(
         @NotNull @DecimalMin("0.01") @Digits(integer = 10, fraction = 2) BigDecimal salaryLpa,
         @NotBlank @Size(max = 160) String location,
         @NotNull ApplicationStatus status,
-        @NotNull LocalDate appliedDate) {
+        @NotNull LocalDate appliedDate,
+        LocalDate interviewDate) {
+
+    public JobApplicationRequest(String companyName, String jobRole, BigDecimal salaryLpa,
+                                 String location, ApplicationStatus status,
+                                 LocalDate appliedDate) {
+        this(companyName, jobRole, salaryLpa, location, status, appliedDate, null);
+    }
 }

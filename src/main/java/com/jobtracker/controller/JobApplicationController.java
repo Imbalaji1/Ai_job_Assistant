@@ -2,6 +2,7 @@ package com.jobtracker.controller;
 
 import com.jobtracker.dto.ApplicationStatusHistoryResponse;
 import com.jobtracker.dto.ApplicationStatusUpdateRequest;
+import com.jobtracker.dto.InterviewDateUpdateRequest;
 import com.jobtracker.dto.JobApplicationRequest;
 import com.jobtracker.dto.JobApplicationResponse;
 import com.jobtracker.dto.PagedResponse;
@@ -64,6 +65,13 @@ public class JobApplicationController {
             @PathVariable("id") Long id,
             @Valid @RequestBody ApplicationStatusUpdateRequest request) {
         return jobApplicationService.updateStatus(id, request.status());
+    }
+
+    @PatchMapping("/{id}/interview-date")
+    public JobApplicationResponse updateInterviewDate(
+            @PathVariable("id") Long id,
+            @Valid @RequestBody InterviewDateUpdateRequest request) {
+        return jobApplicationService.updateInterviewDate(id, request);
     }
 
     @GetMapping("/{id}/history")

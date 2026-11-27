@@ -14,6 +14,15 @@ public record JobApplicationResponse(
         String location,
         ApplicationStatus status,
         LocalDate appliedDate,
+        LocalDate interviewDate,
         LocalDateTime createdAt,
         LocalDateTime updatedAt) {
+
+    public JobApplicationResponse(Long id, String companyName, String jobRole,
+                                  BigDecimal salaryLpa, String location,
+                                  ApplicationStatus status, LocalDate appliedDate,
+                                  LocalDateTime createdAt, LocalDateTime updatedAt) {
+        this(id, companyName, jobRole, salaryLpa, location, status, appliedDate, null,
+                createdAt, updatedAt);
+    }
 }

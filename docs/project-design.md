@@ -2,7 +2,7 @@
 
 ## Scope
 
-Part 1 replaces the console-only tracker with a Spring Boot REST API backed by MySQL. It includes application CRUD, validation, pagination, filtering by company and status, status counts, and status-change history. Ollama integration and a web interface are planned for later parts.
+Part 1 replaces the console-only tracker with a Spring Boot REST API backed by MySQL. It includes application CRUD, validation, pagination, filtering by company and status, status counts, status-change history, and an optional interview date. Part 2 adds resume file storage, chat history, profile settings, and an Ollama-backed career assistant. The web interface and dashboard will be planned after the backend and AI work.
 
 ## Request flow
 
@@ -21,8 +21,8 @@ An API controller receives an HTTP request, the service applies the tracker rule
 
 ## Database
 
-Flyway creates `job_applications` and `application_status_history` from versioned SQL migrations. The existing console program stored data in memory, so there is no old database data to import. Deleting an application also deletes its status history.
+Flyway creates `job_applications` and `application_status_history` from versioned SQL migrations. Later migrations add resume versions, application-to-resume links, AI conversations and messages, activity events, and a single local user profile. Resume document bytes are stored in MySQL; deleting a resume clears the bytes but leaves a minimal history event. Chat messages remain unless the user deletes the chat separately. The existing console program stored data in memory, so there is no old database data to import. Deleting an application also deletes its status history.
 
 ## Later parts
 
-Part 2 adds an Ollama service behind a separate AI package. Part 3 can add the user interface under Spring's `templates` and `static` resources.
+The AI service uses Ollama locally with the configured Qwen model. Resume documents are parsed before their text is included in an AI chat. Chat messages are stored so the backend can resend recent conversation context for each request. Part 3 can add the user interface under Spring's `templates` and `static` resources after the backend and AI endpoints are ready.

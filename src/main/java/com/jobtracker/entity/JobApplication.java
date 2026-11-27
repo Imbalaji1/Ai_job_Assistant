@@ -42,6 +42,9 @@ public class JobApplication {
     @Column(name = "applied_date", nullable = false)
     private LocalDate appliedDate;
 
+    @Column(name = "interview_date")
+    private LocalDate interviewDate;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
@@ -53,12 +56,19 @@ public class JobApplication {
 
     public JobApplication(String companyName, String jobRole, BigDecimal salaryLpa,
                           String location, ApplicationStatus status, LocalDate appliedDate) {
+        this(companyName, jobRole, salaryLpa, location, status, appliedDate, null);
+    }
+
+    public JobApplication(String companyName, String jobRole, BigDecimal salaryLpa,
+                          String location, ApplicationStatus status, LocalDate appliedDate,
+                          LocalDate interviewDate) {
         this.companyName = companyName;
         this.jobRole = jobRole;
         this.salaryLpa = salaryLpa;
         this.location = location;
         this.status = status;
         this.appliedDate = appliedDate;
+        this.interviewDate = interviewDate;
     }
 
     @PrePersist
@@ -86,6 +96,8 @@ public class JobApplication {
     public void setStatus(ApplicationStatus status) { this.status = status; }
     public LocalDate getAppliedDate() { return appliedDate; }
     public void setAppliedDate(LocalDate appliedDate) { this.appliedDate = appliedDate; }
+    public LocalDate getInterviewDate() { return interviewDate; }
+    public void setInterviewDate(LocalDate interviewDate) { this.interviewDate = interviewDate; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
 }
