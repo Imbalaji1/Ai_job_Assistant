@@ -2,7 +2,7 @@
 
 ## Scope
 
-Part 1 replaces the console-only tracker with a Spring Boot REST API backed by MySQL. It includes application CRUD, validation, pagination, filtering by company and status, status counts, status-change history, and an optional interview date. Part 2 adds resume file storage, chat history, profile settings, and an Ollama-backed career assistant. The web interface and dashboard will be planned after the backend and AI work.
+The project replaces the console-only tracker with a Spring Boot REST API backed by MySQL and a React web app. It includes application tracking, resume file management, activity history, profile settings, and an Ollama-backed career assistant. The React app brings these features into one dashboard with light and dark themes.
 
 ## Request flow
 
@@ -21,8 +21,14 @@ An API controller receives an HTTP request, the service applies the tracker rule
 
 ## Database
 
-Flyway creates `job_applications` and `application_status_history` from versioned SQL migrations. Later migrations add resume versions, application-to-resume links, AI conversations and messages, activity events, and a single local user profile. Resume document bytes are stored in MySQL; deleting a resume clears the bytes but leaves a minimal history event. Chat messages remain unless the user deletes the chat separately. The existing console program stored data in memory, so there is no old database data to import. Deleting an application also deletes its status history.
+Flyway creates the application and status-history tables, then adds resume versions, application-to-resume links, AI conversations and messages, activity events, profiles, and user accounts. Passwords are BCrypt hashes. Applications, resumes, conversations, activity events, and profiles are assigned to an account; child records are accessed through their owned application, resume, or conversation. The first account registered after authentication is enabled receives any older records that have no account owner, preserving the existing local data. Deleting an application also deletes its status history.
+
+## Authentication
+
+Spring Security protects the API with signed JWT bearer tokens. Registration and login return a 30-minute access token and a 30-day `HttpOnly` refresh cookie. The client renews the access token in the background; each refresh rotates the cookie and extends the session. Logging out revokes the refresh token. The JWT signing key is read from `JWT_SECRET_BASE64`, and the cookie is marked `Secure` when `AUTH_COOKIE_SECURE=true`. The API checks ownership in its database queries so a token cannot be used to access another account's records.
+
+The React client lives in `frontend/`. Its authentication provider checks the saved sign-in on page load, refreshes access shortly before expiry, and retries a request once if the access token expires unexpectedly. Vite proxies `/api` to Spring Boot during local development. Feature pages call the backend through a shared API client; it adds the current bearer token, includes the refresh cookie, retries expired sessions, and surfaces backend errors. AI chat uses the backend's streaming response route.
 
 ## Later parts
 
-The AI service uses Ollama locally with the configured Qwen model. Resume documents are parsed before their text is included in an AI chat. Chat messages are stored so the backend can resend recent conversation context for each request. Part 3 can add the user interface under Spring's `templates` and `static` resources after the backend and AI endpoints are ready.
+The AI service uses Ollama locally with the configured Qwen model. Resume documents are parsed before their text is included in an AI chat. Chat messages are stored so the backend can resend recent conversation context for each request. The React UI runs separately from the Spring Boot API during local development.

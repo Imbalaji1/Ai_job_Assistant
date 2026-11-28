@@ -24,6 +24,9 @@ public class AiConversation {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "user_account_id")
+    private Long userAccountId;
+
     @Column(nullable = false, length = 160)
     private String title;
 
@@ -50,10 +53,17 @@ public class AiConversation {
 
     public AiConversation(String title, AiConversationPurpose purpose,
                           ResumeVersion resumeVersion, JobApplication jobApplication) {
+        this(title, purpose, resumeVersion, jobApplication, null);
+    }
+
+    public AiConversation(String title, AiConversationPurpose purpose,
+                          ResumeVersion resumeVersion, JobApplication jobApplication,
+                          Long userAccountId) {
         this.title = title;
         this.purpose = purpose;
         this.resumeVersion = resumeVersion;
         this.jobApplication = jobApplication;
+        this.userAccountId = userAccountId;
     }
 
     @PrePersist
@@ -78,6 +88,8 @@ public class AiConversation {
     }
 
     public Long getId() { return id; }
+    public Long getUserAccountId() { return userAccountId; }
+    public void setUserAccountId(Long userAccountId) { this.userAccountId = userAccountId; }
     public String getTitle() { return title; }
     public AiConversationPurpose getPurpose() { return purpose; }
     public ResumeVersion getResumeVersion() { return resumeVersion; }

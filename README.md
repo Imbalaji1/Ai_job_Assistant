@@ -28,6 +28,16 @@ $env:DB_USERNAME = "your-mysql-username"
 $env:DB_PASSWORD = "your-local-mysql-password"
 ```
 
+The API also needs a private signing key for login tokens. Generate a 32-byte key in PowerShell before starting the application. Keep it out of Git and do not share it:
+
+```powershell
+$jwtSecretBytes = New-Object byte[] 32
+$jwtRandom = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$jwtRandom.GetBytes($jwtSecretBytes)
+$jwtRandom.Dispose()
+$env:JWT_SECRET_BASE64 = [Convert]::ToBase64String($jwtSecretBytes)
+```
+
 ## Run the application
 
 From the project folder, run:
@@ -38,6 +48,38 @@ mvn spring-boot:run
 
 The API starts at `http://localhost:8080`.
 
+## Authentication
+
+Register with `POST /api/auth/register` using a name, email, and password of at least 12 characters. Log in with `POST /api/auth/login`. Both return an access token that expires after 30 minutes and set a longer-lived, `HttpOnly` refresh cookie. When the access token expires, the client calls `POST /api/auth/refresh` with that cookie; the server rotates the cookie and returns a fresh access token. The refresh session expires after 30 days without renewal. `POST /api/auth/logout` revokes the refresh cookie. `GET /api/auth/me` returns the signed-in account. The React client will perform the refresh automatically.
+
+Example PowerShell login and authenticated request:
+
+```powershell
+$login = Invoke-RestMethod -Method Post `
+    -Uri "http://localhost:8080/api/auth/login" `
+    -ContentType "application/json" `
+    -Body '{"email":"you@example.com","password":"your-long-password"}'
+
+$headers = @{ Authorization = "Bearer $($login.accessToken)" }
+Invoke-RestMethod -Uri "http://localhost:8080/api/applications" -Headers $headers
+```
+
+Passwords are stored as BCrypt hashes. Applications, resumes, chats, activity history, and profile data are scoped to the signed-in account. The first account registered after this update takes ownership of existing records that do not yet have an account assigned. Later accounts start with their own separate records.
+
+The refresh cookie is `HttpOnly`, uses `SameSite=Strict`, and is not readable by frontend JavaScript. `AUTH_COOKIE_SECURE` defaults to `true`; set it to `false` only for local HTTP development. Keep it `true` when serving the application over HTTPS.
+
+## Start the React application
+
+Start the Spring Boot backend first. In a second PowerShell window, run:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173`. The React app includes the dashboard, application tracker, resume files, AI conversations, History, and profile settings. It supports light and dark themes, and its `/api` development proxy sends API and refresh-cookie requests to Spring Boot on the same browser origin. The frontend uses the backend routes listed below, and automatically refreshes the access token during a session.
+
 ## Run the automated tests
 
 From the project folder, run:
@@ -46,9 +88,11 @@ From the project folder, run:
 mvn test
 ```
 
-The unit tests use mocked repositories, and the HTTP integration test uses a separate in-memory H2 database. This command does not need your MySQL credentials or change your MySQL database. A live check with MySQL still requires the username and password environment variables above.
+The backend unit tests use mocked repositories, and HTTP integration tests use separate in-memory H2 databases. They check login, token expiry and renewal, refresh-token rotation and logout, required tokens, account-to-account data privacy, and the first-account transfer of existing records. In `frontend`, `npm test` checks the client’s automatic refresh and retry behavior, and `npm run build` checks the React production build. These checks do not need your MySQL credentials or change your MySQL database. A live check with MySQL still requires the username and password environment variables above.
 
 ## Part 1 API endpoints
+
+All endpoints below require a bearer token from `/api/auth/login` or `/api/auth/register`.
 
 - `POST /api/applications` — create an application
 - `GET /api/applications` — list applications; optional `company`, `status`, `page`, and `size` query parameters. Pages start at 0; page size defaults to 20 and can be from 1 to 100.

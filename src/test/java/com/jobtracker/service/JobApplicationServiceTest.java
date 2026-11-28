@@ -1,5 +1,6 @@
 package com.jobtracker.service;
 
+import com.jobtracker.TestSecurityContext;
 import com.jobtracker.dto.JobApplicationRequest;
 import com.jobtracker.dto.JobApplicationResponse;
 import com.jobtracker.entity.ApplicationStatusHistory;
@@ -9,6 +10,7 @@ import com.jobtracker.exception.ApplicationNotFoundException;
 import com.jobtracker.repository.ApplicationStatusHistoryRepository;
 import com.jobtracker.repository.JobApplicationRepository;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentMatchers;
@@ -43,7 +45,13 @@ class JobApplicationServiceTest {
 
     @BeforeEach
     void setUp() {
+        TestSecurityContext.setAccountId(1L);
         service = new JobApplicationService(jobApplicationRepository, historyRepository);
+    }
+
+    @AfterEach
+    void clearSecurityContext() {
+        TestSecurityContext.clear();
     }
 
     @Test
@@ -66,7 +74,8 @@ class JobApplicationServiceTest {
     @Test
     void updateStatusRecordsTheChange() {
         JobApplication application = application(ApplicationStatus.INTERVIEW);
-        when(jobApplicationRepository.findById(7L)).thenReturn(Optional.of(application));
+        when(jobApplicationRepository.findByIdAndUserAccountId(7L, 1L))
+                .thenReturn(Optional.of(application));
         when(jobApplicationRepository.saveAndFlush(application)).thenReturn(application);
 
         JobApplicationResponse response = service.updateStatus(7L, ApplicationStatus.SELECTED);
@@ -82,7 +91,8 @@ class JobApplicationServiceTest {
     @Test
     void updateStatusDoesNotRecordAChangeWhenStatusIsUnchanged() {
         JobApplication application = application(ApplicationStatus.APPLIED);
-        when(jobApplicationRepository.findById(7L)).thenReturn(Optional.of(application));
+        when(jobApplicationRepository.findByIdAndUserAccountId(7L, 1L))
+                .thenReturn(Optional.of(application));
         when(jobApplicationRepository.saveAndFlush(application)).thenReturn(application);
 
         service.updateStatus(7L, ApplicationStatus.APPLIED);
@@ -92,7 +102,8 @@ class JobApplicationServiceTest {
 
     @Test
     void findByIdThrowsWhenApplicationDoesNotExist() {
-        when(jobApplicationRepository.findById(404L)).thenReturn(Optional.empty());
+        when(jobApplicationRepository.findByIdAndUserAccountId(404L, 1L))
+                .thenReturn(Optional.empty());
 
         assertThrows(ApplicationNotFoundException.class, () -> service.findById(404L));
     }
@@ -100,7 +111,8 @@ class JobApplicationServiceTest {
     @Test
     void deleteRemovesStatusHistoryBeforeApplication() {
         JobApplication application = application(ApplicationStatus.APPLIED);
-        when(jobApplicationRepository.findById(7L)).thenReturn(Optional.of(application));
+        when(jobApplicationRepository.findByIdAndUserAccountId(7L, 1L))
+                .thenReturn(Optional.of(application));
 
         service.delete(7L);
 

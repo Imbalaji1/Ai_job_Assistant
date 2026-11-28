@@ -32,14 +32,24 @@ public class JobApplicationService {
     private final JobApplicationRepository jobApplicationRepository;
     private final ApplicationStatusHistoryRepository historyRepository;
     private final ActivityHistoryService activityHistoryService;
+    private final CurrentAccountProvider currentAccountProvider;
 
     @Autowired
     public JobApplicationService(JobApplicationRepository jobApplicationRepository,
                                  ApplicationStatusHistoryRepository historyRepository,
-                                 ActivityHistoryService activityHistoryService) {
+                                 ActivityHistoryService activityHistoryService,
+                                 CurrentAccountProvider currentAccountProvider) {
         this.jobApplicationRepository = jobApplicationRepository;
         this.historyRepository = historyRepository;
         this.activityHistoryService = activityHistoryService;
+        this.currentAccountProvider = currentAccountProvider;
+    }
+
+    public JobApplicationService(JobApplicationRepository jobApplicationRepository,
+                                 ApplicationStatusHistoryRepository historyRepository,
+                                 ActivityHistoryService activityHistoryService) {
+        this(jobApplicationRepository, historyRepository, activityHistoryService,
+                new CurrentAccountProvider());
     }
 
     public JobApplicationService(JobApplicationRepository jobApplicationRepository,
@@ -53,6 +63,7 @@ public class JobApplicationService {
                 request.companyName().trim(), request.jobRole().trim(), request.salaryLpa(),
                 request.location().trim(), request.status(), request.appliedDate(),
                 request.interviewDate());
+        application.setUserAccountId(currentAccountProvider.requireAccountId());
         JobApplication saved = jobApplicationRepository.save(application);
         historyRepository.save(new ApplicationStatusHistory(saved, null, saved.getStatus()));
         recordApplicationActivity("APPLICATION_CREATED", "Created application for "
@@ -71,9 +82,11 @@ public class JobApplicationService {
 
         ApplicationStatus status = parseOptionalStatus(statusValue);
         String companyFilter = company == null || company.isBlank() ? null : company.trim();
+        long accountId = currentAccountProvider.requireAccountId();
 
         Specification<JobApplication> specification = (root, query, criteriaBuilder) -> {
             List<Predicate> predicates = new ArrayList<>();
+            predicates.add(criteriaBuilder.equal(root.get("userAccountId"), accountId));
             if (status != null) {
                 predicates.add(criteriaBuilder.equal(root.get("status"), status));
             }
@@ -159,7 +172,8 @@ public class JobApplicationService {
     }
 
     private JobApplication getApplication(Long id) {
-        return jobApplicationRepository.findById(id)
+        return jobApplicationRepository.findByIdAndUserAccountId(
+                        id, currentAccountProvider.requireAccountId())
                 .orElseThrow(() -> new ApplicationNotFoundException(id));
     }
 

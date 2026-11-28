@@ -24,6 +24,9 @@ public class ResumeVersion {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "user_account_id")
+    private Long userAccountId;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "parent_version_id")
     private ResumeVersion parentVersion;
@@ -57,12 +60,19 @@ public class ResumeVersion {
     public ResumeVersion(ResumeVersion parentVersion, String originalFilename,
                          String contentType, long fileSize, byte[] fileData,
                          ResumeSource source) {
+        this(parentVersion, originalFilename, contentType, fileSize, fileData, source, null);
+    }
+
+    public ResumeVersion(ResumeVersion parentVersion, String originalFilename,
+                         String contentType, long fileSize, byte[] fileData,
+                         ResumeSource source, Long userAccountId) {
         this.parentVersion = parentVersion;
         this.originalFilename = originalFilename;
         this.contentType = contentType;
         this.fileSize = fileSize;
         this.fileData = fileData;
         this.source = source;
+        this.userAccountId = userAccountId;
     }
 
     @PrePersist
@@ -78,6 +88,8 @@ public class ResumeVersion {
     }
 
     public Long getId() { return id; }
+    public Long getUserAccountId() { return userAccountId; }
+    public void setUserAccountId(Long userAccountId) { this.userAccountId = userAccountId; }
     public ResumeVersion getParentVersion() { return parentVersion; }
     public String getOriginalFilename() { return originalFilename; }
     public String getContentType() { return contentType; }

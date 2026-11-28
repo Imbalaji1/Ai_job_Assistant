@@ -12,6 +12,9 @@ import com.jobtracker.service.AiChatService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.concurrent.DelegatingSecurityContextRunnable;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -61,7 +64,8 @@ public class AiChatController {
     public SseEmitter streamMessage(@PathVariable("id") Long id,
                                     @Valid @RequestBody AiMessageRequest request) {
         SseEmitter emitter = new SseEmitter(180_000L);
-        CompletableFuture.runAsync(() -> {
+        SecurityContext securityContext = SecurityContextHolder.getContext();
+        CompletableFuture.runAsync(new DelegatingSecurityContextRunnable(() -> {
             try {
                 chatService.streamMessage(id, request.message(), token -> sendToken(emitter, token));
                 emitter.send(SseEmitter.event().name("complete").data("done"));
@@ -69,7 +73,7 @@ public class AiChatController {
             } catch (Exception exception) {
                 emitter.completeWithError(exception);
             }
-        });
+        }, securityContext));
         return emitter;
     }
 

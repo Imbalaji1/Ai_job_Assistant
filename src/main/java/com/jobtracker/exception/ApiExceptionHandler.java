@@ -1,6 +1,7 @@
 package com.jobtracker.exception;
 
 import com.jobtracker.dto.ApiErrorResponse;
+import com.jobtracker.exception.TooManyLoginAttemptsException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -36,6 +37,28 @@ public class ApiExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleAiUnavailable(
             AiServiceUnavailableException exception, HttpServletRequest request) {
         return error(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(EmailAlreadyRegisteredException.class)
+    public ResponseEntity<ApiErrorResponse> handleEmailAlreadyRegistered(
+            EmailAlreadyRegisteredException exception, HttpServletRequest request) {
+        return error(HttpStatus.CONFLICT, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(InvalidCredentialsException.class)
+    public ResponseEntity<ApiErrorResponse> handleInvalidCredentials(
+            InvalidCredentialsException exception, HttpServletRequest request) {
+        return error(HttpStatus.UNAUTHORIZED, exception.getMessage(), request);
+    }
+
+    @ExceptionHandler(TooManyLoginAttemptsException.class)
+    public ResponseEntity<ApiErrorResponse> handleTooManyLoginAttempts(
+            TooManyLoginAttemptsException exception, HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", "900")
+                .body(new ApiErrorResponse(Instant.now(), HttpStatus.TOO_MANY_REQUESTS.value(),
+                        HttpStatus.TOO_MANY_REQUESTS.getReasonPhrase(), exception.getMessage(),
+                        request.getRequestURI()));
     }
 
     @ExceptionHandler(MaxUploadSizeExceededException.class)

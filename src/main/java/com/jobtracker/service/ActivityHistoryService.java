@@ -8,6 +8,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -15,14 +16,23 @@ import org.springframework.transaction.annotation.Transactional;
 public class ActivityHistoryService {
     private static final int MAX_PAGE_SIZE = 100;
     private final ActivityEventRepository repository;
+    private final CurrentAccountProvider currentAccountProvider;
+
+    @Autowired
+    public ActivityHistoryService(ActivityEventRepository repository,
+                                  CurrentAccountProvider currentAccountProvider) {
+        this.repository = repository;
+        this.currentAccountProvider = currentAccountProvider;
+    }
 
     public ActivityHistoryService(ActivityEventRepository repository) {
-        this.repository = repository;
+        this(repository, new CurrentAccountProvider());
     }
 
     @Transactional
     public void record(String eventType, String summary, String entityType, Long entityId) {
-        repository.save(new ActivityEvent(eventType, summary, entityType, entityId));
+        repository.save(new ActivityEvent(eventType, summary, entityType, entityId,
+                currentAccountProvider.requireAccountId()));
     }
 
     public Page<ActivityEventResponse> findEvents(int page, int size) {
@@ -30,17 +40,19 @@ public class ActivityHistoryService {
             throw new IllegalArgumentException("Page must be zero or greater and size must be from 1 to 100.");
         }
         Pageable pageable = PageRequest.of(page, size);
-        return repository.findAllByOrderByCreatedAtDescIdDesc(pageable)
+        return repository.findAllByUserAccountIdOrderByCreatedAtDescIdDesc(
+                        currentAccountProvider.requireAccountId(), pageable)
                 .map(ActivityEventResponse::from);
     }
 
     public HistorySummaryResponse getSummary() {
+        long accountId = currentAccountProvider.requireAccountId();
         return new HistorySummaryResponse(
-                repository.countByEventType("RESUME_UPLOADED"),
-                repository.countByEventType("RESUME_VERSION_GENERATED"),
-                repository.countByEventType("RESUME_DELETED"),
-                repository.countByEventType("APPLICATION_CREATED"),
-                repository.countByEventType("APPLICATION_DELETED"),
-                repository.countByEventType("AI_CHAT_STARTED"));
+                repository.countByUserAccountIdAndEventType(accountId, "RESUME_UPLOADED"),
+                repository.countByUserAccountIdAndEventType(accountId, "RESUME_VERSION_GENERATED"),
+                repository.countByUserAccountIdAndEventType(accountId, "RESUME_DELETED"),
+                repository.countByUserAccountIdAndEventType(accountId, "APPLICATION_CREATED"),
+                repository.countByUserAccountIdAndEventType(accountId, "APPLICATION_DELETED"),
+                repository.countByUserAccountIdAndEventType(accountId, "AI_CHAT_STARTED"));
     }
 }

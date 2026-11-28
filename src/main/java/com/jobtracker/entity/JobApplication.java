@@ -23,6 +23,9 @@ public class JobApplication {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "user_account_id")
+    private Long userAccountId;
+
     @Column(name = "company_name", nullable = false, length = 120)
     private String companyName;
 
@@ -84,6 +87,8 @@ public class JobApplication {
     }
 
     public Long getId() { return id; }
+    public Long getUserAccountId() { return userAccountId; }
+    public void setUserAccountId(Long userAccountId) { this.userAccountId = userAccountId; }
     public String getCompanyName() { return companyName; }
     public void setCompanyName(String companyName) { this.companyName = companyName; }
     public String getJobRole() { return jobRole; }

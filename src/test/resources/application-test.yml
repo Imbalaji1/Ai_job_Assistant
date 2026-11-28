@@ -9,3 +9,10 @@ spring:
       ddl-auto: create-drop
   flyway:
     enabled: false
+app:
+  security:
+    jwt:
+      secret-base64: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      access-token-ttl: PT30M
+    refresh-token-ttl: P30D
+    refresh-cookie-secure: false

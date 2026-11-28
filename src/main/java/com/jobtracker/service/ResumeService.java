@@ -6,6 +6,7 @@ import com.jobtracker.enums.ResumeSource;
 import com.jobtracker.exception.ResumeNotFoundException;
 import com.jobtracker.repository.ResumeVersionRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -25,13 +26,23 @@ public class ResumeService {
     private final ResumeVersionRepository resumeRepository;
     private final ActivityHistoryService historyService;
     private final ResumeTextExtractor textExtractor;
+    private final CurrentAccountProvider currentAccountProvider;
+
+    @Autowired
+    public ResumeService(ResumeVersionRepository resumeRepository,
+                         ActivityHistoryService historyService,
+                         ResumeTextExtractor textExtractor,
+                         CurrentAccountProvider currentAccountProvider) {
+        this.resumeRepository = resumeRepository;
+        this.historyService = historyService;
+        this.textExtractor = textExtractor;
+        this.currentAccountProvider = currentAccountProvider;
+    }
 
     public ResumeService(ResumeVersionRepository resumeRepository,
                          ActivityHistoryService historyService,
                          ResumeTextExtractor textExtractor) {
-        this.resumeRepository = resumeRepository;
-        this.historyService = historyService;
-        this.textExtractor = textExtractor;
+        this(resumeRepository, historyService, textExtractor, new CurrentAccountProvider());
     }
 
     @Transactional
@@ -50,7 +61,8 @@ public class ResumeService {
             validateFileSignature(filename, bytes);
             textExtractor.extract(bytes, contentType);
             ResumeVersion saved = resumeRepository.saveAndFlush(new ResumeVersion(
-                    null, filename, contentType, bytes.length, bytes, ResumeSource.UPLOADED));
+                    null, filename, contentType, bytes.length, bytes, ResumeSource.UPLOADED,
+                    currentAccountProvider.requireAccountId()));
             historyService.record("RESUME_UPLOADED", "Uploaded resume " + filename,
                     "RESUME", saved.getId());
             return ResumeVersionResponse.from(saved);
@@ -60,12 +72,14 @@ public class ResumeService {
     }
 
     public List<ResumeVersionResponse> findAll() {
-        return resumeRepository.findAllByDeletedAtIsNullOrderByCreatedAtDescIdDesc()
+        return resumeRepository.findAllByUserAccountIdAndDeletedAtIsNullOrderByCreatedAtDescIdDesc(
+                        currentAccountProvider.requireAccountId())
                 .stream().map(ResumeVersionResponse::from).toList();
     }
 
     public ResumeVersion getActiveVersion(Long id) {
-        return resumeRepository.findByIdAndDeletedAtIsNull(id)
+        return resumeRepository.findByIdAndUserAccountIdAndDeletedAtIsNull(
+                        id, currentAccountProvider.requireAccountId())
                 .orElseThrow(() -> new ResumeNotFoundException(id));
     }
 
@@ -99,7 +113,7 @@ public class ResumeService {
         textExtractor.extract(content, expectedType);
         ResumeVersion generated = resumeRepository.saveAndFlush(new ResumeVersion(
                 parent, safeName, expectedType, content.length, content,
-                ResumeSource.AI_GENERATED));
+                ResumeSource.AI_GENERATED, currentAccountProvider.requireAccountId()));
         historyService.record("RESUME_VERSION_GENERATED",
                 "AI created resume version " + safeName, "RESUME", generated.getId());
         return ResumeVersionResponse.from(generated);

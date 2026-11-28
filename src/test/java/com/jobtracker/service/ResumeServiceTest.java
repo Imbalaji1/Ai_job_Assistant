@@ -1,9 +1,11 @@
 package com.jobtracker.service;
 
+import com.jobtracker.TestSecurityContext;
 import com.jobtracker.entity.ResumeVersion;
 import com.jobtracker.enums.ResumeSource;
 import com.jobtracker.repository.ResumeVersionRepository;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -34,7 +36,13 @@ class ResumeServiceTest {
 
     @BeforeEach
     void setUp() {
+        TestSecurityContext.setAccountId(1L);
         resumeService = new ResumeService(resumeRepository, historyService, textExtractor);
+    }
+
+    @AfterEach
+    void clearSecurityContext() {
+        TestSecurityContext.clear();
     }
 
     @Test

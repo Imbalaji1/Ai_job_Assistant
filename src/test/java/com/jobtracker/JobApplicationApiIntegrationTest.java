@@ -8,6 +8,10 @@ import com.jobtracker.repository.ApplicationStatusHistoryRepository;
 import com.jobtracker.repository.JobApplicationRepository;
 import com.jobtracker.repository.ResumeVersionRepository;
 import com.jobtracker.repository.UserProfileRepository;
+import com.jobtracker.repository.UserAccountRepository;
+import com.jobtracker.repository.RefreshTokenRepository;
+import com.jobtracker.entity.JobApplication;
+import com.jobtracker.enums.ApplicationStatus;
 import com.jobtracker.service.ResumeDocumentWriter;
 import com.jobtracker.service.ResumeService;
 import org.junit.jupiter.api.BeforeEach;
@@ -59,12 +63,19 @@ class JobApplicationApiIntegrationTest {
     private UserProfileRepository userProfileRepository;
 
     @Autowired
+    private UserAccountRepository userAccountRepository;
+
+    @Autowired
+    private RefreshTokenRepository refreshTokenRepository;
+
+    @Autowired
     private ResumeDocumentWriter resumeDocumentWriter;
 
     private final HttpClient httpClient = HttpClient.newHttpClient();
+    private String accessToken;
 
     @BeforeEach
-    void clearDatabase() {
+    void clearDatabase() throws Exception {
         aiMessageRepository.deleteAll();
         aiConversationRepository.deleteAll();
         resumeSubmissionRepository.deleteAll();
@@ -73,6 +84,175 @@ class JobApplicationApiIntegrationTest {
         resumeVersionRepository.deleteAll();
         historyRepository.deleteAll();
         jobApplicationRepository.deleteAll();
+        refreshTokenRepository.deleteAll();
+        userAccountRepository.deleteAll();
+
+        HttpResponse<String> registration = sendUnauthenticated("POST", "/api/auth/register",
+                "{\"name\":\"Nila Example\",\"email\":\"nila@example.com\","
+                        + "\"password\":\"correct-horse-battery-staple\"}");
+        assertEquals(201, registration.statusCode(), registration.body());
+        accessToken = extractAccessToken(registration.body());
+    }
+
+    @Test
+    void requiresAuthenticationAndSupportsRegistrationLoginAndCurrentUser() throws Exception {
+        assertEquals(401, sendUnauthenticated("GET", "/api/applications", null).statusCode());
+        assertEquals(401, sendWithToken("not-a-valid-token", "GET", "/api/applications", null)
+                .statusCode());
+
+        HttpResponse<String> login = sendUnauthenticated("POST", "/api/auth/login",
+                "{\"email\":\"NILA@example.com\","
+                        + "\"password\":\"correct-horse-battery-staple\"}");
+        assertEquals(200, login.statusCode(), login.body());
+        String loginToken = extractAccessToken(login.body());
+        HttpResponse<String> currentUser = sendWithToken(loginToken, "GET", "/api/auth/me", null);
+        assertEquals(200, currentUser.statusCode(), currentUser.body());
+        assertTrue(currentUser.body().contains("nila@example.com"));
+        String passwordHash = userAccountRepository.findByEmailIgnoreCase("nila@example.com")
+                .orElseThrow().getPasswordHash();
+        assertEquals(60, passwordHash.length());
+        assertFalse(passwordHash.contains("correct-horse-battery-staple"));
+
+        HttpResponse<String> wrongPassword = sendUnauthenticated("POST", "/api/auth/login",
+                "{\"email\":\"nila@example.com\",\"password\":\"wrong-password\"}");
+        assertEquals(401, wrongPassword.statusCode(), wrongPassword.body());
+
+        HttpResponse<String> duplicateEmail = sendUnauthenticated("POST", "/api/auth/register",
+                "{\"name\":\"Another User\",\"email\":\"NILA@example.com\","
+                        + "\"password\":\"another-long-password-123\"}");
+        assertEquals(409, duplicateEmail.statusCode(), duplicateEmail.body());
+    }
+
+    @Test
+    void protectsAuthenticationRequestsAndAddsSecurityHeaders() throws Exception {
+        HttpResponse<String> missingHeader = sendAuthRequest("/api/auth/register",
+                "{\"name\":\"Blocked User\",\"email\":\"blocked@example.com\","
+                        + "\"password\":\"a-long-blocked-password\"}", null, false);
+        assertEquals(403, missingHeader.statusCode(), missingHeader.body());
+
+        HttpResponse<String> crossSite = sendAuthRequest("/api/auth/register",
+                "{\"name\":\"Cross Site\",\"email\":\"cross@example.com\","
+                        + "\"password\":\"a-long-cross-site-password\"}", "cross-site", true);
+        assertEquals(403, crossSite.statusCode(), crossSite.body());
+
+        HttpResponse<String> allowed = sendUnauthenticated("POST", "/api/auth/register",
+                "{\"name\":\"Header User\",\"email\":\"header@example.com\","
+                        + "\"password\":\"a-long-header-password\"}");
+        assertEquals(201, allowed.statusCode(), allowed.body());
+        assertEquals("DENY", allowed.headers().firstValue("X-Frame-Options").orElseThrow());
+        assertEquals("nosniff", allowed.headers()
+                .firstValue("X-Content-Type-Options").orElseThrow());
+        assertEquals("no-referrer", allowed.headers()
+                .firstValue("Referrer-Policy").orElseThrow());
+        assertEquals("camera=(), microphone=(), geolocation=()", allowed.headers()
+                .firstValue("Permissions-Policy").orElseThrow());
+        assertTrue(allowed.headers().firstValue("Content-Security-Policy")
+                .orElseThrow().contains("frame-ancestors 'none'"));
+    }
+
+    @Test
+    void limitsRepeatedFailedLoginsAndReturnsSameErrorForUnknownAccounts() throws Exception {
+        HttpResponse<String> knownAccountFailure = sendUnauthenticated("POST", "/api/auth/login",
+                "{\"email\":\"nila@example.com\",\"password\":\"wrong-password\"}");
+        HttpResponse<String> unknownAccountFailure = sendUnauthenticated("POST", "/api/auth/login",
+                "{\"email\":\"nobody@example.com\",\"password\":\"wrong-password\"}");
+        assertEquals(knownAccountFailure.statusCode(), unknownAccountFailure.statusCode());
+        assertTrue(knownAccountFailure.body().contains("Email or password is incorrect."));
+        assertTrue(unknownAccountFailure.body().contains("Email or password is incorrect."));
+
+        for (int attempt = 1; attempt < 10; attempt++) {
+            assertEquals(401, sendUnauthenticated("POST", "/api/auth/login",
+                    "{\"email\":\"throttle@example.com\","
+                            + "\"password\":\"wrong-password\"}").statusCode());
+        }
+        HttpResponse<String> blocked = sendUnauthenticated("POST", "/api/auth/login",
+                "{\"email\":\"throttle@example.com\",\"password\":\"wrong-password\"}");
+        assertEquals(401, blocked.statusCode());
+        HttpResponse<String> rateLimited = sendUnauthenticated("POST", "/api/auth/login",
+                "{\"email\":\"throttle@example.com\",\"password\":\"wrong-password\"}");
+        assertEquals(429, rateLimited.statusCode(), rateLimited.body());
+        assertEquals("900", rateLimited.headers().firstValue("Retry-After").orElseThrow());
+    }
+
+    @Test
+    void accountsCannotReadOrChangeAnotherAccountsApplications() throws Exception {
+        HttpResponse<String> created = send("POST", "/api/applications",
+                "{\"companyName\":\"Private Company\",\"jobRole\":\"Java Developer\","
+                        + "\"salaryLpa\":8.50,\"location\":\"Bengaluru\","
+                        + "\"status\":\"Applied\",\"appliedDate\":\"2026-11-27\"}");
+        assertEquals(201, created.statusCode(), created.body());
+        String location = created.headers().firstValue("Location").orElseThrow();
+        String applicationId = location.substring(location.lastIndexOf('/') + 1);
+
+        byte[] docx = resumeDocumentWriter.write("Nila Example\nJava Developer",
+                ResumeService.DOCX_CONTENT_TYPE);
+        HttpResponse<String> uploaded = sendMultipart("/api/resumes", "file", "private.docx",
+                ResumeService.DOCX_CONTENT_TYPE, docx);
+        assertEquals(201, uploaded.statusCode(), uploaded.body());
+        String resumeLocation = uploaded.headers().firstValue("Location").orElseThrow();
+        String resumeId = resumeLocation.substring(resumeLocation.lastIndexOf('/') + 1);
+
+        HttpResponse<String> createdChat = send("POST", "/api/ai/chats",
+                "{\"purpose\":\"CAREER_DEVELOPMENT\",\"title\":\"Private career chat\"}");
+        assertEquals(201, createdChat.statusCode(), createdChat.body());
+        int chatIdStart = createdChat.body().indexOf(':') + 1;
+        int chatIdEnd = createdChat.body().indexOf(',', chatIdStart);
+        String chatId = createdChat.body().substring(chatIdStart, chatIdEnd);
+
+        HttpResponse<String> secondRegistration = sendUnauthenticated("POST", "/api/auth/register",
+                "{\"name\":\"Second User\",\"email\":\"second@example.com\","
+                        + "\"password\":\"another-long-password-123\"}");
+        assertEquals(201, secondRegistration.statusCode(), secondRegistration.body());
+        String secondToken = extractAccessToken(secondRegistration.body());
+
+        HttpResponse<String> secondUsersApplications = sendWithToken(secondToken, "GET",
+                "/api/applications", null);
+        assertEquals(200, secondUsersApplications.statusCode(), secondUsersApplications.body());
+        assertTrue(secondUsersApplications.body().contains("\"totalElements\":0"));
+        assertTrue(sendWithToken(secondToken, "GET", "/api/resumes", null)
+                .body().contains("[]"));
+        assertEquals(404, sendWithToken(secondToken, "GET",
+                "/api/resumes/" + resumeId + "/download", null).statusCode());
+        assertTrue(sendWithToken(secondToken, "GET", "/api/ai/chats", null)
+                .body().contains("[]"));
+        assertEquals(404, sendWithToken(secondToken, "GET",
+                "/api/ai/chats/" + chatId + "/messages", null).statusCode());
+        assertEquals(404, sendWithToken(secondToken, "DELETE",
+                "/api/ai/chats/" + chatId, null).statusCode());
+        assertEquals(404, sendWithToken(secondToken, "DELETE",
+                "/api/resumes/" + resumeId, null).statusCode());
+        String secondProfile = sendWithToken(secondToken, "GET", "/api/profile", null).body();
+        assertTrue(secondProfile.contains("second@example.com"));
+        assertFalse(secondProfile.contains("nila@example.com"));
+        String secondHistory = sendWithToken(secondToken, "GET", "/api/history", null).body();
+        assertTrue(secondHistory.contains("\"totalElements\":0"));
+        assertFalse(secondHistory.contains("Private Company"));
+        assertEquals(404, sendWithToken(secondToken, "GET",
+                "/api/applications/" + applicationId, null).statusCode());
+        assertEquals(404, sendWithToken(secondToken, "DELETE",
+                "/api/applications/" + applicationId, null).statusCode());
+    }
+
+    @Test
+    void firstRegisteredAccountReceivesExistingUnownedRecords() throws Exception {
+        userProfileRepository.deleteAll();
+        refreshTokenRepository.deleteAll();
+        userAccountRepository.deleteAll();
+        JobApplication legacyApplication = new JobApplication("Legacy Company", "Developer",
+                new java.math.BigDecimal("5.00"), "Remote", ApplicationStatus.APPLIED,
+                java.time.LocalDate.of(2026, 11, 27));
+        jobApplicationRepository.saveAndFlush(legacyApplication);
+
+        HttpResponse<String> firstRegistration = sendUnauthenticated("POST", "/api/auth/register",
+                "{\"name\":\"Legacy Owner\",\"email\":\"legacy@example.com\","
+                        + "\"password\":\"legacy-account-password-123\"}");
+        assertEquals(201, firstRegistration.statusCode(), firstRegistration.body());
+        String legacyOwnerToken = extractAccessToken(firstRegistration.body());
+        HttpResponse<String> migratedApplications = sendWithToken(legacyOwnerToken, "GET",
+                "/api/applications", null);
+        assertEquals(200, migratedApplications.statusCode(), migratedApplications.body());
+        assertTrue(migratedApplications.body().contains("Legacy Company"));
+        assertTrue(migratedApplications.body().contains("\"totalElements\":1"));
     }
 
     @Test
@@ -139,6 +319,51 @@ class JobApplicationApiIntegrationTest {
 
         assertEquals(400, response.statusCode(), response.body());
         assertTrue(response.body().contains("companyName"));
+    }
+
+    @Test
+    void rejectsOversizedResumeAndRemovesPathFromUploadedFilename() throws Exception {
+        byte[] validDocx = resumeDocumentWriter.write("Synthetic Resume\nJava Developer",
+                ResumeService.DOCX_CONTENT_TYPE);
+        HttpResponse<String> traversalName = sendMultipart("/api/resumes", "file",
+                "..\\..\\private-resume.docx", ResumeService.DOCX_CONTENT_TYPE, validDocx);
+        assertEquals(201, traversalName.statusCode(), traversalName.body());
+        assertTrue(traversalName.body().contains("private-resume.docx"));
+        assertFalse(traversalName.body().contains("..\\"));
+        assertFalse(traversalName.body().contains("../"));
+
+        byte[] oversizedContent = new byte[(int) ResumeService.MAX_FILE_SIZE + 1];
+        HttpResponse<String> oversized = sendMultipart("/api/resumes", "file", "too-big.pdf",
+                ResumeService.PDF_CONTENT_TYPE, oversizedContent);
+        assertEquals(413, oversized.statusCode(), oversized.body());
+        assertTrue(oversized.body().contains("10 MB or smaller"));
+    }
+
+    @Test
+    void storesSixtySyntheticPdfAndDocxResumesThroughTheUploadApi() throws Exception {
+        for (int number = 1; number <= 60; number++) {
+            String text = "Synthetic Candidate " + number + "\n"
+                    + "Java Backend Developer\n"
+                    + "Skills: Java, Spring Boot, MySQL\n"
+                    + "Experience: 3 years\n"
+                    + "This is artificial test data.";
+            boolean usePdf = number % 2 == 0;
+            String extension = usePdf ? "pdf" : "docx";
+            String contentType = usePdf
+                    ? ResumeService.PDF_CONTENT_TYPE : ResumeService.DOCX_CONTENT_TYPE;
+            byte[] file = resumeDocumentWriter.write(text, contentType);
+
+            HttpResponse<String> uploaded = sendMultipart("/api/resumes", "file",
+                    "synthetic-candidate-" + number + "." + extension, contentType, file);
+            assertEquals(201, uploaded.statusCode(),
+                    "Resume " + number + " was not stored: " + uploaded.body());
+        }
+
+        HttpResponse<String> storedResumes = send("GET", "/api/resumes", null);
+        assertEquals(200, storedResumes.statusCode(), storedResumes.body());
+        assertEquals(60, storedResumes.body().split("\\\"originalFilename\\\"").length - 1);
+        HttpResponse<String> history = send("GET", "/api/history/summary", null);
+        assertTrue(history.body().contains("\"resumeUploads\":60"), history.body());
     }
 
     @Test
@@ -218,15 +443,49 @@ class JobApplicationApiIntegrationTest {
     }
 
     private HttpResponse<String> send(String method, String path, String body) throws Exception {
+        return sendWithToken(accessToken, method, path, body);
+    }
+
+    private HttpResponse<String> sendUnauthenticated(String method, String path, String body)
+            throws Exception {
+        return sendWithToken(null, method, path, body);
+    }
+
+    private HttpResponse<String> sendWithToken(String token, String method, String path,
+                                               String body) throws Exception {
         HttpRequest.Builder request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + path))
                 .header("Content-Type", "application/json");
+        if (token != null) {
+            request.header("Authorization", "Bearer " + token);
+        }
+        if (path.startsWith("/api/auth/") && !method.equalsIgnoreCase("GET")) {
+            request.header("X-Requested-With", "AIJobAssistant");
+        }
         if (body == null) {
             request.method(method, HttpRequest.BodyPublishers.noBody());
         } else {
             request.method(method, HttpRequest.BodyPublishers.ofString(body));
         }
         return httpClient.send(request.build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpResponse<String> sendAuthRequest(String path, String body, String fetchSite,
+                                                 boolean includeApplicationHeader)
+            throws Exception {
+        HttpRequest.Builder request = HttpRequest.newBuilder()
+                .uri(URI.create("http://localhost:" + port + path));
+        if (body != null) {
+            request.header("Content-Type", "application/json");
+        }
+        if (includeApplicationHeader) {
+            request.header("X-Requested-With", "AIJobAssistant");
+        }
+        if (fetchSite != null) {
+            request.header("Sec-Fetch-Site", fetchSite);
+        }
+        return httpClient.send(request.POST(HttpRequest.BodyPublishers.ofString(body)).build(),
+                HttpResponse.BodyHandlers.ofString());
     }
 
     private HttpResponse<String> sendMultipart(String path, String fieldName,
@@ -245,8 +504,20 @@ class JobApplicationApiIntegrationTest {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + path))
                 .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .header("Authorization", "Bearer " + accessToken)
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray()))
                 .build();
         return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
+    private String extractAccessToken(String body) {
+        String marker = "\"accessToken\":\"";
+        int start = body.indexOf(marker);
+        if (start < 0) {
+            throw new IllegalStateException("Authentication response did not include an access token.");
+        }
+        start += marker.length();
+        int end = body.indexOf('"', start);
+        return body.substring(start, end);
     }
 }

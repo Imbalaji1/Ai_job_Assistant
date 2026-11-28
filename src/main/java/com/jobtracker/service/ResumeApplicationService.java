@@ -21,17 +21,20 @@ public class ResumeApplicationService {
     private final JobApplicationRepository jobApplicationRepository;
     private final ApplicationResumeSubmissionRepository submissionRepository;
     private final ActivityHistoryService historyService;
+    private final CurrentAccountProvider currentAccountProvider;
 
     public ResumeApplicationService(ResumeService resumeService,
                                     JobApplicationService jobApplicationService,
                                     JobApplicationRepository jobApplicationRepository,
                                     ApplicationResumeSubmissionRepository submissionRepository,
-                                    ActivityHistoryService historyService) {
+                                    ActivityHistoryService historyService,
+                                    CurrentAccountProvider currentAccountProvider) {
         this.resumeService = resumeService;
         this.jobApplicationService = jobApplicationService;
         this.jobApplicationRepository = jobApplicationRepository;
         this.submissionRepository = submissionRepository;
         this.historyService = historyService;
+        this.currentAccountProvider = currentAccountProvider;
     }
 
     @Transactional
@@ -39,7 +42,8 @@ public class ResumeApplicationService {
                                                    JobApplicationRequest request) {
         ResumeVersion resume = resumeService.getActiveVersion(resumeVersionId);
         JobApplicationResponse response = jobApplicationService.create(request);
-        JobApplication application = jobApplicationRepository.findById(response.id())
+        JobApplication application = jobApplicationRepository.findByIdAndUserAccountId(
+                        response.id(), currentAccountProvider.requireAccountId())
                 .orElseThrow(() -> new ApplicationNotFoundException(response.id()));
         submissionRepository.save(new ApplicationResumeSubmission(application, resume));
         historyService.record("RESUME_LINKED_TO_APPLICATION",
@@ -72,7 +76,8 @@ public class ResumeApplicationService {
     }
 
     private JobApplication requireApplication(Long applicationId) {
-        return jobApplicationRepository.findById(applicationId)
+        return jobApplicationRepository.findByIdAndUserAccountId(
+                        applicationId, currentAccountProvider.requireAccountId())
                 .orElseThrow(() -> new ApplicationNotFoundException(applicationId));
     }
 }

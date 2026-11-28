@@ -17,6 +17,9 @@ public class ActivityEvent {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "user_account_id")
+    private Long userAccountId;
+
     @Column(name = "event_type", nullable = false, length = 40)
     private String eventType;
 
@@ -37,10 +40,16 @@ public class ActivityEvent {
 
     public ActivityEvent(String eventType, String summary,
                          String relatedEntityType, Long relatedEntityId) {
+        this(eventType, summary, relatedEntityType, relatedEntityId, null);
+    }
+
+    public ActivityEvent(String eventType, String summary,
+                         String relatedEntityType, Long relatedEntityId, Long userAccountId) {
         this.eventType = eventType;
         this.summary = summary;
         this.relatedEntityType = relatedEntityType;
         this.relatedEntityId = relatedEntityId;
+        this.userAccountId = userAccountId;
     }
 
     @PrePersist
@@ -51,6 +60,8 @@ public class ActivityEvent {
     }
 
     public Long getId() { return id; }
+    public Long getUserAccountId() { return userAccountId; }
+    public void setUserAccountId(Long userAccountId) { this.userAccountId = userAccountId; }
     public String getEventType() { return eventType; }
     public String getSummary() { return summary; }
     public String getRelatedEntityType() { return relatedEntityType; }

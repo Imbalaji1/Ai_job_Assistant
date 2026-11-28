@@ -24,6 +24,12 @@ server:
   port: 8080
 
 app:
+  security:
+    jwt:
+      secret-base64: ${JWT_SECRET_BASE64}
+      access-token-ttl: PT30M
+    refresh-token-ttl: P30D
+    refresh-cookie-secure: ${AUTH_COOKIE_SECURE:true}
   resume:
     pdf-font-path: ${RESUME_PDF_FONT_PATH:}
   ollama:

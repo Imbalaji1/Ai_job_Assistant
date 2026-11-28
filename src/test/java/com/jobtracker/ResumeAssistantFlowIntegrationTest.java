@@ -1,17 +1,21 @@
 package com.jobtracker;
 
 import com.jobtracker.dto.AiChatCreateRequest;
+import com.jobtracker.dto.RegisterRequest;
 import com.jobtracker.dto.JobApplicationRequest;
 import com.jobtracker.enums.AiConversationPurpose;
 import com.jobtracker.enums.ApplicationStatus;
 import com.jobtracker.enums.ResumeKeepChoice;
 import com.jobtracker.service.ActivityHistoryService;
+import com.jobtracker.service.AuthService;
 import com.jobtracker.service.AiChatService;
 import com.jobtracker.service.ResumeApplicationService;
 import com.jobtracker.service.ResumeDocumentWriter;
 import com.jobtracker.service.ResumeService;
 import com.jobtracker.service.OllamaClient;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.web.MockMultipartFile;
@@ -20,7 +24,9 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -46,8 +52,24 @@ class ResumeAssistantFlowIntegrationTest {
     @Autowired
     private ResumeDocumentWriter documentWriter;
 
+    @Autowired
+    private AuthService authService;
+
     @MockitoBean
     private OllamaClient ollamaClient;
+
+    @BeforeEach
+    void authenticateTestUser() {
+        var user = authService.register(new RegisterRequest(
+                "Nila Example", "nila-" + UUID.randomUUID() + "@example.com",
+                "long-test-password-123"));
+        TestSecurityContext.setAccountId(user.response().user().id());
+    }
+
+    @AfterEach
+    void clearSecurityContext() {
+        TestSecurityContext.clear();
+    }
 
     @Test
     void storesResumeTracksApplicationChatsRevisesAndKeepsBothVersions() {
@@ -90,5 +112,25 @@ class ResumeAssistantFlowIntegrationTest {
         assertEquals(1, historyService.getSummary().aiGeneratedResumeVersions());
         assertEquals(1, historyService.getSummary().aiChatsStarted());
         verify(ollamaClient, org.mockito.Mockito.times(2)).chat(anyList());
+    }
+
+    @Test
+    void returnsTheExactOutOfScopeMessageWithoutCallingOllama() {
+        var conversation = aiChatService.create(new AiChatCreateRequest(
+                AiConversationPurpose.CAREER_DEVELOPMENT, "Career chat", null, null));
+
+        var reply = aiChatService.sendMessage(conversation.id(),
+                "What is the capital of France?");
+
+        assertEquals("I am built for development purpose only. Sorry, I can't understand your question.",
+                reply.assistantMessage().content());
+        verify(ollamaClient, org.mockito.Mockito.never()).chat(anyList());
+
+        List<String> streamedTokens = new ArrayList<>();
+        aiChatService.streamMessage(conversation.id(), "What is the capital of France?",
+                streamedTokens::add);
+        assertEquals(List.of(reply.assistantMessage().content()), streamedTokens);
+        verify(ollamaClient, org.mockito.Mockito.never()).stream(
+                anyList(), org.mockito.ArgumentMatchers.any());
     }
 }

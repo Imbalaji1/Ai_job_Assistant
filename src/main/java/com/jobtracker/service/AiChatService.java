@@ -25,7 +25,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
 import java.util.function.Consumer;
 
 @Service
@@ -38,6 +40,16 @@ public class AiChatService {
             "Would you like to keep the original resume, the new resume, or both?";
     private static final String OFF_TOPIC_REPLY =
             "I am built for development purpose only. Sorry, I can't understand your question.";
+    private static final Pattern CLEARLY_UNRELATED_TOPIC = Pattern.compile(
+            "\\b(capital\\s+of|weather|recipe|cooking|cricket|football|soccer|basketball|"
+                    + "tennis|movie|film|song|lyrics|music|joke|politics|election|president|"
+                    + "news|horoscope|travel itinerary|tourist attraction|stock price|"
+                    + "cryptocurrency|crypto|symptom|diagnosis|medical advice|legal advice)\\b");
+    private static final Pattern CAREER_TOPIC = Pattern.compile(
+            "\\b(resume|résumé|cv|job|career|interview|application|role|skill|salary|"
+                    + "company|work|experience|promotion|offer|developer|engineer|recruiter|"
+                    + "employment|profession|portfolio|cover letter|growth|professional|"
+                    + "hiring|workplace|manager|leadership|qualification|achievement|project)\\b");
 
     private final AiConversationRepository conversationRepository;
     private final AiMessageRepository messageRepository;
@@ -48,6 +60,7 @@ public class AiChatService {
     private final ResumeDocumentWriter documentWriter;
     private final ResumeService resumeService;
     private final OllamaClient ollamaClient;
+    private final CurrentAccountProvider currentAccountProvider;
 
     public AiChatService(AiConversationRepository conversationRepository,
                          AiMessageRepository messageRepository,
@@ -57,7 +70,8 @@ public class AiChatService {
                          ResumeTextExtractor textExtractor,
                          ResumeDocumentWriter documentWriter,
                          ResumeService resumeService,
-                         OllamaClient ollamaClient) {
+                         OllamaClient ollamaClient,
+                         CurrentAccountProvider currentAccountProvider) {
         this.conversationRepository = conversationRepository;
         this.messageRepository = messageRepository;
         this.resumeRepository = resumeRepository;
@@ -67,15 +81,18 @@ public class AiChatService {
         this.documentWriter = documentWriter;
         this.resumeService = resumeService;
         this.ollamaClient = ollamaClient;
+        this.currentAccountProvider = currentAccountProvider;
     }
 
     @Transactional
     public AiConversationResponse create(AiChatCreateRequest request) {
+        long accountId = currentAccountProvider.requireAccountId();
         ResumeVersion resume = request.resumeVersionId() == null ? null
-                : resumeRepository.findByIdAndDeletedAtIsNull(request.resumeVersionId())
+                : resumeRepository.findByIdAndUserAccountIdAndDeletedAtIsNull(
+                        request.resumeVersionId(), accountId)
                 .orElseThrow(() -> new ResumeNotFoundException(request.resumeVersionId()));
         JobApplication application = request.jobApplicationId() == null ? null
-                : applicationRepository.findById(request.jobApplicationId())
+                : applicationRepository.findByIdAndUserAccountId(request.jobApplicationId(), accountId)
                 .orElseThrow(() -> new ApplicationNotFoundException(request.jobApplicationId()));
 
         if ((request.purpose() == AiConversationPurpose.RESUME_ANALYSIS
@@ -93,14 +110,15 @@ public class AiChatService {
                 ? defaultTitle(request.purpose(), application)
                 : request.title().trim();
         AiConversation conversation = conversationRepository.save(new AiConversation(
-                title, request.purpose(), resume, application));
+                title, request.purpose(), resume, application, accountId));
         historyService.record("AI_CHAT_STARTED", "Started AI chat: " + title,
                 "AI_CHAT", conversation.getId());
         return AiConversationResponse.from(conversation);
     }
 
     public List<AiConversationResponse> findAll() {
-        return conversationRepository.findAllByOrderByUpdatedAtDesc().stream()
+        return conversationRepository.findAllByUserAccountIdOrderByUpdatedAtDesc(
+                        currentAccountProvider.requireAccountId()).stream()
                 .map(AiConversationResponse::from).toList();
     }
 
@@ -119,7 +137,9 @@ public class AiChatService {
         conversation.touch();
         conversationRepository.save(conversation);
 
-        String answer = ollamaClient.chat(buildModelMessages(conversationId, conversation));
+        String answer = isClearlyOffTopic(normalized)
+                ? OFF_TOPIC_REPLY
+                : ollamaClient.chat(buildModelMessages(conversationId, conversation));
         AiMessage assistantMessage = messageRepository.save(
                 new AiMessage(conversation, AiMessageRole.ASSISTANT, answer));
         recordAnswerEvent(conversation);
@@ -135,8 +155,14 @@ public class AiChatService {
         conversation.touch();
         conversationRepository.save(conversation);
 
-        String answer = ollamaClient.stream(buildModelMessages(conversationId, conversation),
-                tokenConsumer);
+        String answer;
+        if (isClearlyOffTopic(normalized)) {
+            answer = OFF_TOPIC_REPLY;
+            tokenConsumer.accept(answer);
+        } else {
+            answer = ollamaClient.stream(buildModelMessages(conversationId, conversation),
+                    tokenConsumer);
+        }
         messageRepository.save(new AiMessage(conversation, AiMessageRole.ASSISTANT, answer));
         recordAnswerEvent(conversation);
     }
@@ -232,7 +258,8 @@ public class AiChatService {
     }
 
     private AiConversation getConversation(Long id) {
-        return conversationRepository.findById(id)
+        return conversationRepository.findByIdAndUserAccountId(
+                        id, currentAccountProvider.requireAccountId())
                 .orElseThrow(() -> new AiConversationNotFoundException(id));
     }
 
@@ -241,6 +268,12 @@ public class AiChatService {
             throw new IllegalArgumentException("Chat message cannot be empty.");
         }
         return text.trim();
+    }
+
+    private boolean isClearlyOffTopic(String message) {
+        String normalized = message.toLowerCase(Locale.ROOT);
+        return CLEARLY_UNRELATED_TOPIC.matcher(normalized).find()
+                && !CAREER_TOPIC.matcher(normalized).find();
     }
 
     private List<Map<String, String>> buildModelMessages(Long conversationId,
